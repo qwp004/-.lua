@@ -1,6 +1,6 @@
 --[[
-    小猫脚本 v3.1 - 手机端适配完整版
-    虚拟摇杆飞行 | 道具透视优化 | 性能防卡顿
+    小猫脚本 v3.2 - 优化修复版
+    修复Delta加载问题 | 优化性能 | 简化代码
 --]]
 
 local Players = game:GetService("Players")
@@ -14,8 +14,10 @@ local playerGui = player:WaitForChild("PlayerGui")
 local camera = Workspace.CurrentCamera
 
 -- 清除旧UI
-local oldGui = playerGui:FindFirstChild("KittenScriptUI")
-if oldGui then oldGui:Destroy() end
+pcall(function()
+    local old = playerGui:FindFirstChild("KittenScriptUI")
+    if old then old:Destroy() end
+end)
 
 -- 创建主界面
 local ScreenGui = Instance.new("ScreenGui")
@@ -24,18 +26,13 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = playerGui
 
--- 配色方案
+-- 配色
 local Colors = {
     Primary = Color3.fromRGB(255, 105, 180),
     Secondary = Color3.fromRGB(138, 43, 226),
     Accent = Color3.fromRGB(0, 255, 255),
     Gold = Color3.fromRGB(255, 215, 0),
-    Orange = Color3.fromRGB(255, 140, 0),
     Green = Color3.fromRGB(50, 255, 150),
-    Purple = Color3.fromRGB(186, 85, 211),
-    Pink = Color3.fromRGB(255, 20, 147),
-    Yellow = Color3.fromRGB(255, 255, 0),
-    Cyan = Color3.fromRGB(0, 255, 255),
     Red = Color3.fromRGB(255, 50, 50),
     Background = Color3.fromRGB(15, 8, 25),
     PanelBg = Color3.fromRGB(30, 15, 45),
@@ -45,163 +42,124 @@ local Colors = {
     HoverBg = Color3.fromRGB(65, 38, 95),
     ActiveBg = Color3.fromRGB(85, 50, 120),
     SliderBg = Color3.fromRGB(60, 35, 90),
-    SliderFill = Color3.fromRGB(255, 105, 180),
     InputBg = Color3.fromRGB(50, 30, 75),
 }
 
 -- 工具函数
-local function createGradient(parent, color1, color2, rotation)
-    local gradient = Instance.new("UIGradient")
-    gradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, color1),
-        ColorSequenceKeypoint.new(1, color2)
-    })
-    gradient.Rotation = rotation or 45
-    gradient.Parent = parent
-    return gradient
+local function corner(parent, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 20)
+    c.Parent = parent
+    return c
 end
 
-local function createGlow(parent, color, size)
-    local glow = Instance.new("UIStroke")
-    glow.Color = color or Colors.Accent
-    glow.Thickness = size or 2
-    glow.Transparency = 0.3
-    glow.Parent = parent
-    return glow
+local function glow(parent, color, size)
+    local g = Instance.new("UIStroke")
+    g.Color = color or Colors.Accent
+    g.Thickness = size or 2
+    g.Transparency = 0.3
+    g.Parent = parent
+    return g
 end
 
-local function createCorner(parent, radius)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, radius or 20)
-    corner.Parent = parent
-    return corner
+local function tween(obj, props, dur)
+    TweenService:Create(obj, TweenInfo.new(dur or 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
 end
 
-local function tween(obj, props, duration, easing, direction)
-    local tween = TweenService:Create(
-        obj,
-        TweenInfo.new(duration or 0.3, easing or Enum.EasingStyle.Quad, direction or Enum.EasingDirection.Out),
-        props
-    )
-    tween:Play()
-    return tween
-end
-
--- 状态管理
+-- 状态
 local State = {
-    speedEnabled = false,
-    speedValue = 100,
-    jumpEnabled = false,
-    jumpValue = 100,
-    flyEnabled = false,
-    flySpeed = 50,
-    flyMobileMode = true, -- 手机端飞行模式
-    playerEspEnabled = false,
-    playerEspTeamCheck = true,
-    npcEspEnabled = false,
-    itemEspEnabled = false,
-    itemEspRange = 100,
-    npcKillEnabled = false,
-    npcKillRange = 20,
-    npcKillInterval = 1,
+    speed = {enabled = false, value = 100},
+    jump = {enabled = false, value = 100},
+    fly = {enabled = false, speed = 50, mobile = true},
+    playerEsp = {enabled = false, teamCheck = true},
+    npcEsp = {enabled = false},
+    itemEsp = {enabled = false, range = 100},
+    npcKill = {enabled = false, range = 20, interval = 1},
     minimized = false,
 }
 
--- 连接存储
 local Connections = {}
-local RenderConnections = {}
 
 -- ========== 主面板 ==========
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 650, 0, 380)
-MainFrame.Position = UDim2.new(0.5, -325, 0.5, -190)
+MainFrame.Size = UDim2.new(0, 600, 0, 350)
+MainFrame.Position = UDim2.new(0.5, -300, 0.5, -175)
 MainFrame.BackgroundColor3 = Colors.Background
 MainFrame.BorderSizePixel = 0
 MainFrame.ZIndex = 10
 MainFrame.Parent = ScreenGui
 
-createCorner(MainFrame, 25)
-createGlow(MainFrame, Colors.Accent, 3)
-createGradient(MainFrame, Color3.fromRGB(45, 22, 75), Color3.fromRGB(12, 6, 22), 135)
+corner(MainFrame, 25)
+glow(MainFrame, Colors.Accent, 3)
 
 -- 标题栏
 local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
 TopBar.Size = UDim2.new(1, 0, 0, 45)
 TopBar.BackgroundColor3 = Colors.Primary
 TopBar.BorderSizePixel = 0
 TopBar.ZIndex = 11
 TopBar.Parent = MainFrame
 
-createCorner(TopBar, 25)
-createGradient(TopBar, Colors.Pink, Colors.Purple, 90)
+corner(TopBar, 25)
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Name = "Title"
-TitleLabel.Size = UDim2.new(1, -140, 1, 0)
-TitleLabel.Position = UDim2.new(0, 20, 0, 0)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "🐱 小猫脚本 v3.1"
-TitleLabel.Font = Enum.Font.GothamBlack
-TitleLabel.TextSize = 22
-TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.ZIndex = 12
-TitleLabel.Parent = TopBar
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -140, 1, 0)
+Title.Position = UDim2.new(0, 20, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "🐱 小猫脚本 v3.2"
+Title.Font = Enum.Font.GothamBlack
+Title.TextSize = 22
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.ZIndex = 12
+Title.Parent = TopBar
 
 local titleStroke = Instance.new("UIStroke")
 titleStroke.Color = Colors.Gold
 titleStroke.Thickness = 2
-titleStroke.Parent = TitleLabel
+Title.Parent = TopBar
 
 -- 最小化按钮
-local MinimizeButton = Instance.new("TextButton")
-MinimizeButton.Name = "MinimizeBtn"
-MinimizeButton.Size = UDim2.new(0, 35, 0, 35)
-MinimizeButton.Position = UDim2.new(1, -85, 0, 5)
-MinimizeButton.BackgroundColor3 = Colors.Yellow
-MinimizeButton.Text = "─"
-MinimizeButton.Font = Enum.Font.GothamBold
-MinimizeButton.TextSize = 20
-MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeButton.ZIndex = 12
-MinimizeButton.Parent = TopBar
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 35, 0, 35)
+MinBtn.Position = UDim2.new(1, -85, 0, 5)
+MinBtn.BackgroundColor3 = Colors.Gold
+MinBtn.Text = "─"
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 20
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.ZIndex = 12
+MinBtn.Parent = TopBar
 
-createCorner(MinimizeButton, 17)
-createGlow(MinimizeButton, Colors.Yellow, 2)
+corner(MinBtn, 17)
 
 -- 关闭按钮
-local CloseButton = Instance.new("TextButton")
-CloseButton.Name = "CloseBtn"
-CloseButton.Size = UDim2.new(0, 35, 0, 35)
-CloseButton.Position = UDim2.new(1, -45, 0, 5)
-CloseButton.BackgroundColor3 = Colors.Pink
-CloseButton.Text = "✕"
-CloseButton.Font = Enum.Font.GothamBold
-CloseButton.TextSize = 18
-CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseButton.ZIndex = 12
-CloseButton.Parent = TopBar
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 35, 0, 35)
+CloseBtn.Position = UDim2.new(1, -45, 0, 5)
+CloseBtn.BackgroundColor3 = Colors.Red
+CloseBtn.Text = "✕"
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 18
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.ZIndex = 12
+CloseBtn.Parent = TopBar
 
-createCorner(CloseButton, 17)
-createGlow(CloseButton, Colors.Pink, 2)
+corner(CloseBtn, 17)
 
--- ========== 左侧功能栏 ==========
+-- ========== 左侧栏 ==========
 local Sidebar = Instance.new("Frame")
-Sidebar.Name = "Sidebar"
-Sidebar.Size = UDim2.new(0, 160, 1, -55)
+Sidebar.Size = UDim2.new(0, 150, 1, -55)
 Sidebar.Position = UDim2.new(0, 10, 0, 50)
 Sidebar.BackgroundColor3 = Colors.SidebarBg
 Sidebar.BorderSizePixel = 0
 Sidebar.ZIndex = 11
 Sidebar.Parent = MainFrame
 
-createCorner(Sidebar, 20)
-createGlow(Sidebar, Colors.Purple, 2)
+corner(Sidebar, 20)
+glow(Sidebar, Colors.Primary, 2)
 
 local SidebarScroll = Instance.new("ScrollingFrame")
-SidebarScroll.Name = "SidebarScroll"
 SidebarScroll.Size = UDim2.new(1, -10, 1, -10)
 SidebarScroll.Position = UDim2.new(0, 5, 0, 5)
 SidebarScroll.BackgroundTransparency = 1
@@ -217,26 +175,19 @@ SidebarList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 SidebarList.SortOrder = Enum.SortOrder.LayoutOrder
 SidebarList.Parent = SidebarScroll
 
-local SidebarPadding = Instance.new("UIPadding")
-SidebarPadding.PaddingTop = UDim.new(0, 8)
-SidebarPadding.PaddingBottom = UDim.new(0, 8)
-SidebarPadding.Parent = SidebarScroll
-
 -- ========== 右侧内容区 ==========
 local ContentArea = Instance.new("Frame")
-ContentArea.Name = "ContentArea"
-ContentArea.Size = UDim2.new(1, -190, 1, -55)
-ContentArea.Position = UDim2.new(0, 180, 0, 50)
+ContentArea.Size = UDim2.new(1, -180, 1, -55)
+ContentArea.Position = UDim2.new(0, 170, 0, 50)
 ContentArea.BackgroundColor3 = Colors.ContentBg
 ContentArea.BorderSizePixel = 0
 ContentArea.ZIndex = 11
 ContentArea.Parent = MainFrame
 
-createCorner(ContentArea, 20)
-createGlow(ContentArea, Colors.Cyan, 2)
+corner(ContentArea, 20)
+glow(ContentArea, Colors.Accent, 2)
 
 local ContentScroll = Instance.new("ScrollingFrame")
-ContentScroll.Name = "ContentScroll"
 ContentScroll.Size = UDim2.new(1, -16, 1, -16)
 ContentScroll.Position = UDim2.new(0, 8, 0, 8)
 ContentScroll.BackgroundTransparency = 1
@@ -252,125 +203,95 @@ ContentList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 ContentList.SortOrder = Enum.SortOrder.LayoutOrder
 ContentList.Parent = ContentScroll
 
-local ContentPadding = Instance.new("UIPadding")
-ContentPadding.PaddingTop = UDim.new(0, 8)
-ContentPadding.PaddingBottom = UDim.new(0, 8)
-ContentPadding.Parent = ContentScroll
-
--- ========== 创建滑动条+数字输入框（双向绑定） ==========
-local function createSliderWithInput(parent, name, min, max, default, color, callback)
+-- ========== 创建控件 ==========
+local function createSlider(parent, name, min, max, default, color, callback)
     local container = Instance.new("Frame")
-    container.Name = name.."Container"
-    container.Size = UDim2.new(0.95, 0, 0, 70)
+    container.Size = UDim2.new(0.95, 0, 0, 65)
     container.BackgroundColor3 = Colors.ButtonBg
     container.BorderSizePixel = 0
     container.ZIndex = 13
+    corner(container, 15)
+    glow(container, color, 1)
 
-    createCorner(container, 15)
-    createGlow(container, color, 1)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.5, 0, 0, 20)
+    label.Position = UDim2.new(0, 12, 0, 8)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 14
+    label.Parent = container
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(0.6, 0, 0, 22)
-    nameLabel.Position = UDim2.new(0, 12, 0, 8)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = name
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 15
-    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.ZIndex = 14
-    nameLabel.Parent = container
-
-    local inputBox = Instance.new("TextBox")
-    inputBox.Name = "InputBox"
-    inputBox.Size = UDim2.new(0, 70, 0, 28)
-    inputBox.Position = UDim2.new(1, -82, 0, 5)
-    inputBox.BackgroundColor3 = Colors.InputBg
-    inputBox.Text = tostring(default)
-    inputBox.Font = Enum.Font.GothamBold
-    inputBox.TextSize = 14
-    inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    inputBox.ZIndex = 14
-    inputBox.Parent = container
-
-    createCorner(inputBox, 8)
-    createGlow(inputBox, color, 1)
+    local input = Instance.new("TextBox")
+    input.Size = UDim2.new(0, 60, 0, 26)
+    input.Position = UDim2.new(1, -72, 0, 5)
+    input.BackgroundColor3 = Colors.InputBg
+    input.Text = tostring(default)
+    input.Font = Enum.Font.GothamBold
+    input.TextSize = 13
+    input.TextColor3 = Color3.fromRGB(255, 255, 255)
+    input.ZIndex = 14
+    corner(input, 8)
+    input.Parent = container
 
     local sliderBg = Instance.new("Frame")
-    sliderBg.Name = "SliderBg"
-    sliderBg.Size = UDim2.new(1, -24, 0, 10)
-    sliderBg.Position = UDim2.new(0, 12, 0, 42)
+    sliderBg.Size = UDim2.new(1, -24, 0, 8)
+    sliderBg.Position = UDim2.new(0, 12, 0, 38)
     sliderBg.BackgroundColor3 = Colors.SliderBg
     sliderBg.BorderSizePixel = 0
     sliderBg.ZIndex = 14
+    corner(sliderBg, 4)
     sliderBg.Parent = container
 
-    createCorner(sliderBg, 5)
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = color
+    fill.BorderSizePixel = 0
+    fill.ZIndex = 15
+    corner(fill, 4)
+    fill.Parent = sliderBg
 
-    local sliderFill = Instance.new("Frame")
-    sliderFill.Name = "SliderFill"
-    sliderFill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
-    sliderFill.BackgroundColor3 = color
-    sliderFill.BorderSizePixel = 0
-    sliderFill.ZIndex = 15
-    sliderFill.Parent = sliderBg
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 16, 0, 16)
+    btn.Position = UDim2.new((default - min) / (max - min), -8, 0, -4)
+    btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = ""
+    btn.ZIndex = 16
+    corner(btn, 8)
+    btn.Parent = sliderBg
 
-    createCorner(sliderFill, 5)
+    local value = default
+    local sliding = false
 
-    local sliderBtn = Instance.new("TextButton")
-    sliderBtn.Name = "SliderBtn"
-    sliderBtn.Size = UDim2.new(0, 18, 0, 18)
-    sliderBtn.Position = UDim2.new((default - min) / (max - min), -9, 0, -4)
-    sliderBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    sliderBtn.Text = ""
-    sliderBtn.ZIndex = 16
-    sliderBtn.Parent = sliderBg
-
-    createCorner(sliderBtn, 9)
-    createGlow(sliderBtn, color, 2)
-
-    local currentValue = default
-
-    local function updateValue(value)
-        currentValue = math.clamp(value, min, max)
-        local percent = (currentValue - min) / (max - min)
-        sliderFill.Size = UDim2.new(percent, 0, 1, 0)
-        sliderBtn.Position = UDim2.new(percent, -9, 0, -4)
-        inputBox.Text = string.format("%.0f", currentValue)
-        if callback then callback(currentValue) end
+    local function update(v)
+        value = math.clamp(v, min, max)
+        local p = (value - min) / (max - min)
+        fill.Size = UDim2.new(p, 0, 1, 0)
+        btn.Position = UDim2.new(p, -8, 0, -4)
+        input.Text = string.format("%.0f", value)
+        if callback then callback(value) end
     end
 
-    inputBox.FocusLost:Connect(function()
-        local num = tonumber(inputBox.Text)
-        if num then
-            updateValue(num)
-        else
-            inputBox.Text = tostring(currentValue)
-        end
+    input.FocusLost:Connect(function()
+        local n = tonumber(input.Text)
+        if n then update(n) else input.Text = tostring(value) end
     end)
-
-    local sliding = false
 
     sliderBg.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
             sliding = true
             local pos = input.Position.X - sliderBg.AbsolutePosition.X
-            local percent = math.clamp(pos / sliderBg.AbsoluteSize.X, 0, 1)
-            updateValue(min + percent * (max - min))
-        end
-    end)
-
-    sliderBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sliding = true
+            update(min + math.clamp(pos / sliderBg.AbsoluteSize.X, 0, 1) * (max - min))
         end
     end)
 
     UserInputService.InputChanged:Connect(function(input)
         if sliding and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
             local pos = input.Position.X - sliderBg.AbsolutePosition.X
-            local percent = math.clamp(pos / sliderBg.AbsoluteSize.X, 0, 1)
-            updateValue(min + percent * (max - min))
+            update(min + math.clamp(pos / sliderBg.AbsoluteSize.X, 0, 1) * (max - min))
         end
     end)
 
@@ -381,233 +302,185 @@ local function createSliderWithInput(parent, name, min, max, default, color, cal
     end)
 
     container.Parent = parent
-    return {container = container, updateValue = updateValue, getValue = function() return currentValue end}
+    return {update = update, get = function() return value end}
 end
 
--- ========== 创建开关按钮 ==========
-local function createToggle(parent, name, defaultState, color, callback)
+local function createToggle(parent, name, default, color, callback)
     local container = Instance.new("Frame")
-    container.Name = name.."Toggle"
-    container.Size = UDim2.new(0.95, 0, 0, 50)
+    container.Size = UDim2.new(0.95, 0, 0, 45)
     container.BackgroundColor3 = Colors.ButtonBg
     container.BorderSizePixel = 0
     container.ZIndex = 13
+    corner(container, 15)
+    glow(container, color, 1)
 
-    createCorner(container, 15)
-    createGlow(container, color, 1)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.6, 0, 1, 0)
+    label.Position = UDim2.new(0, 12, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 15
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.ZIndex = 14
+    label.Parent = container
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(0.7, 0, 1, 0)
-    nameLabel.Position = UDim2.new(0, 12, 0, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = name
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.TextSize = 16
-    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    nameLabel.ZIndex = 14
-    nameLabel.Parent = container
+    local bg = Instance.new("TextButton")
+    bg.Size = UDim2.new(0, 50, 0, 26)
+    bg.Position = UDim2.new(1, -62, 0.5, -13)
+    bg.BackgroundColor3 = default and color or Color3.fromRGB(80, 80, 80)
+    bg.Text = ""
+    bg.ZIndex = 14
+    corner(bg, 13)
+    bg.Parent = container
 
-    local toggleBg = Instance.new("TextButton")
-    toggleBg.Name = "ToggleBg"
-    toggleBg.Size = UDim2.new(0, 55, 0, 28)
-    toggleBg.Position = UDim2.new(1, -67, 0.5, -14)
-    toggleBg.BackgroundColor3 = defaultState and color or Color3.fromRGB(80, 80, 80)
-    toggleBg.Text = ""
-    toggleBg.ZIndex = 14
-    toggleBg.Parent = container
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, 20, 0, 20)
+    dot.Position = default and UDim2.new(1, -23, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)
+    dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 15
+    corner(dot, 10)
+    dot.Parent = bg
 
-    createCorner(toggleBg, 14)
-
-    local toggleDot = Instance.new("Frame")
-    toggleDot.Name = "ToggleDot"
-    toggleDot.Size = UDim2.new(0, 22, 0, 22)
-    toggleDot.Position = defaultState and UDim2.new(1, -25, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)
-    toggleDot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    toggleDot.BorderSizePixel = 0
-    toggleDot.ZIndex = 15
-    toggleDot.Parent = toggleBg
-
-    createCorner(toggleDot, 11)
-
-    local state = defaultState
-
-    toggleBg.MouseButton1Click:Connect(function()
+    local state = default
+    bg.MouseButton1Click:Connect(function()
         state = not state
-        tween(toggleBg, {BackgroundColor3 = state and color or Color3.fromRGB(80, 80, 80)}, 0.2)
-        tween(toggleDot, {Position = state and UDim2.new(1, -25, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)}, 0.2)
+        tween(bg, {BackgroundColor3 = state and color or Color3.fromRGB(80, 80, 80)}, 0.2)
+        tween(dot, {Position = state and UDim2.new(1, -23, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, 0.2)
         if callback then callback(state) end
     end)
 
     container.Parent = parent
-    return {container = container, getState = function() return state end, setState = function(s) state = s end}
+    return {get = function() return state end}
 end
 
--- ========== 创建功能按钮 ==========
-local function createActionButton(parent, name, desc, icon, color1, color2, callback)
-    local btnFrame = Instance.new("Frame")
-    btnFrame.Name = name.."Btn"
-    btnFrame.Size = UDim2.new(0.95, 0, 0, 65)
-    btnFrame.BackgroundColor3 = Colors.ButtonBg
-    btnFrame.BorderSizePixel = 0
-    btnFrame.ZIndex = 13
+local function createButton(parent, name, desc, icon, color, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0.95, 0, 0, 60)
+    frame.BackgroundColor3 = Colors.ButtonBg
+    frame.BorderSizePixel = 0
+    frame.ZIndex = 13
+    corner(frame, 18)
+    glow(frame, color, 2)
 
-    createCorner(btnFrame, 18)
-    createGlow(btnFrame, color1, 2)
+    local iconLabel = Instance.new("TextLabel")
+    iconLabel.Size = UDim2.new(0, 35, 0, 35)
+    iconLabel.Position = UDim2.new(0, 12, 0, 12)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Text = icon
+    iconLabel.Font = Enum.Font.GothamBold
+    iconLabel.TextSize = 24
+    iconLabel.ZIndex = 14
+    iconLabel.Parent = frame
 
-    local bgGradient = createGradient(btnFrame, color1, color2, 0)
-    bgGradient.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.85),
-        NumberSequenceKeypoint.new(1, 0.85)
-    })
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, -60, 0, 20)
+    nameLabel.Position = UDim2.new(0, 55, 0, 8)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = name
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 15
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.ZIndex = 14
+    nameLabel.Parent = frame
 
-    local IconLabel = Instance.new("TextLabel")
-    IconLabel.Size = UDim2.new(0, 40, 0, 40)
-    IconLabel.Position = UDim2.new(0, 12, 0, 12)
-    IconLabel.BackgroundTransparency = 1
-    IconLabel.Text = icon
-    IconLabel.Font = Enum.Font.GothamBold
-    IconLabel.TextSize = 26
-    IconLabel.ZIndex = 14
-    IconLabel.Parent = btnFrame
+    local descLabel = Instance.new("TextLabel")
+    descLabel.Size = UDim2.new(1, -60, 0, 16)
+    descLabel.Position = UDim2.new(0, 55, 0, 30)
+    descLabel.BackgroundTransparency = 1
+    descLabel.Text = desc
+    descLabel.Font = Enum.Font.Gotham
+    descLabel.TextSize = 12
+    descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    descLabel.TextXAlignment = Enum.TextXAlignment.Left
+    descLabel.ZIndex = 14
+    descLabel.Parent = frame
 
-    local NameLabel = Instance.new("TextLabel")
-    NameLabel.Size = UDim2.new(1, -65, 0, 22)
-    NameLabel.Position = UDim2.new(0, 60, 0, 8)
-    NameLabel.BackgroundTransparency = 1
-    NameLabel.Text = name
-    NameLabel.Font = Enum.Font.GothamBold
-    NameLabel.TextSize = 16
-    NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    NameLabel.TextXAlignment = Enum.TextXAlignment.Left
-    NameLabel.ZIndex = 14
-    NameLabel.Parent = btnFrame
+    local click = Instance.new("TextButton")
+    click.Size = UDim2.new(1, 0, 1, 0)
+    click.BackgroundTransparency = 1
+    click.Text = ""
+    click.ZIndex = 15
+    click.Parent = frame
 
-    local DescLabel = Instance.new("TextLabel")
-    DescLabel.Size = UDim2.new(1, -65, 0, 18)
-    DescLabel.Position = UDim2.new(0, 60, 0, 32)
-    DescLabel.BackgroundTransparency = 1
-    DescLabel.Text = desc
-    DescLabel.Font = Enum.Font.Gotham
-    DescLabel.TextSize = 12
-    DescLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    DescLabel.TextXAlignment = Enum.TextXAlignment.Left
-    DescLabel.ZIndex = 14
-    DescLabel.Parent = btnFrame
-
-    local ClickBtn = Instance.new("TextButton")
-    ClickBtn.Size = UDim2.new(1, 0, 1, 0)
-    ClickBtn.BackgroundTransparency = 1
-    ClickBtn.Text = ""
-    ClickBtn.ZIndex = 15
-    ClickBtn.Parent = btnFrame
-
-    ClickBtn.MouseEnter:Connect(function()
-        tween(btnFrame, {Size = UDim2.new(0.97, 0, 0, 68)}, 0.2)
-        bgGradient.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0.6)})
-    end)
-
-    ClickBtn.MouseLeave:Connect(function()
-        tween(btnFrame, {Size = UDim2.new(0.95, 0, 0, 65)}, 0.2)
-        bgGradient.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.85), NumberSequenceKeypoint.new(1, 0.85)})
-    end)
-
-    ClickBtn.MouseButton1Click:Connect(function()
-        local ripple = Instance.new("Frame")
-        ripple.Size = UDim2.new(0, 0, 0, 0)
-        ripple.Position = UDim2.new(0.5, 0, 0.5, 0)
-        ripple.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        ripple.BackgroundTransparency = 0.5
-        ripple.ZIndex = 16
-        ripple.Parent = btnFrame
-        createCorner(ripple, 50)
-        tween(ripple, {Size = UDim2.new(1, 0, 1, 0), Position = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 1}, 0.5)
-        game:GetService("Debris"):AddItem(ripple, 0.5)
+    click.MouseButton1Click:Connect(function()
         if callback then callback() end
     end)
 
-    btnFrame.Parent = parent
-    return btnFrame
+    frame.Parent = parent
 end
 
--- ========== 核心功能实现 ==========
+-- ========== 功能实现 ==========
+local function clearConnections()
+    for _, conn in pairs(Connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Connections = {}
+end
 
--- 速度循环
-local speedConnection = nil
-local function updateSpeedLoop()
-    if speedConnection then speedConnection:Disconnect() end
-    if State.speedEnabled then
-        speedConnection = RunService.Heartbeat:Connect(function()
-            local char = player.Character
-            if char and char:FindFirstChild("Humanoid") then
-                char.Humanoid.WalkSpeed = State.speedValue
-            end
-        end)
+-- 速度
+local function updateSpeed()
+    clearConnections()
+    if State.speed.enabled then
+        table.insert(Connections, RunService.Heartbeat:Connect(function()
+            pcall(function()
+                local char = player.Character
+                if char and char:FindFirstChild("Humanoid") then
+                    char.Humanoid.WalkSpeed = State.speed.value
+                end
+            end)
+        end))
     end
 end
 
--- 跳跃循环
-local jumpConnection = nil
-local function updateJumpLoop()
-    if jumpConnection then jumpConnection:Disconnect() end
-    if State.jumpEnabled then
-        jumpConnection = RunService.Heartbeat:Connect(function()
-            local char = player.Character
-            if char and char:FindFirstChild("Humanoid") then
-                char.Humanoid.UseJumpPower = true
-                char.Humanoid.JumpPower = State.jumpValue
-            end
-        end)
+-- 跳跃
+local function updateJump()
+    clearConnections()
+    if State.jump.enabled then
+        table.insert(Connections, RunService.Heartbeat:Connect(function()
+            pcall(function()
+                local char = player.Character
+                if char and char:FindFirstChild("Humanoid") then
+                    char.Humanoid.UseJumpPower = true
+                    char.Humanoid.JumpPower = State.jump.value
+                end
+            end)
+        end))
     end
 end
 
--- ========== 手机端虚拟摇杆飞行 ==========
-local flyConnection = nil
-local flyBodyVelocity = nil
-local flyMobileConnection = nil
+-- 飞行
+local flyBody = nil
+local flyConn = nil
 
--- 获取虚拟摇杆输入
-local function getMobileThumbstickInput()
-    local touchInputs = {}
-    for _, input in pairs(UserInputService:GetGamepadState(Enum.UserInputType.Gamepad1)) do
-        -- 这个方法不适用，改用另一种方式
+local function updateFly()
+    if flyConn then
+        pcall(function() flyConn:Disconnect() end)
+        flyConn = nil
+    end
+    if flyBody then
+        pcall(function() flyBody:Destroy() end)
+        flyBody = nil
     end
 
-    -- 检测触摸输入来模拟摇杆
-    local moveDirection = Vector3.new(0, 0, 0)
-    local char = player.Character
-    if not char then return moveDirection end
+    if not State.fly.enabled then return end
 
-    local humanoid = char:FindFirstChild("Humanoid")
-    if not humanoid then return moveDirection end
-
-    -- 使用 Humanoid 的 MoveDirection 来获取摇杆方向
-    local moveDir = humanoid.MoveDirection
-    if moveDir.Magnitude > 0.1 then
-        moveDirection = moveDir
-    end
-
-    return moveDirection
-end
-
--- 改进的手机端飞行
-local function toggleFly(enabled)
-    State.flyEnabled = enabled
     local char = player.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    if enabled then
-        flyBodyVelocity = Instance.new("BodyVelocity")
-        flyBodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
-        flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        flyBodyVelocity.Parent = hrp
+    flyBody = Instance.new("BodyVelocity")
+    flyBody.MaxForce = Vector3.new(400000, 400000, 400000)
+    flyBody.Velocity = Vector3.new(0, 0, 0)
+    flyBody.Parent = hrp
 
-        -- 手机端飞行控制
-        flyMobileConnection = RunService.Heartbeat:Connect(function()
-            if not flyBodyVelocity or not flyBodyVelocity.Parent then return end
-
+    flyConn = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if not flyBody or not flyBody.Parent then return end
             local char = player.Character
             if not char then return end
             local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -615,309 +488,497 @@ local function toggleFly(enabled)
             if not hrp or not humanoid then return end
 
             local camCF = camera.CFrame
-            local velocity = Vector3.new(0, 0, 0)
+            local vel = Vector3.new(0, 0, 0)
 
-            if State.flyMobileMode then
-                -- 手机端：使用虚拟摇杆方向
+            if State.fly.mobile then
+                -- 手机虚拟摇杆
                 local moveDir = humanoid.MoveDirection
-
                 if moveDir.Magnitude > 0.1 then
-                    -- 摇杆向上 = 向前飞行（基于相机朝向）
-                    -- 摇杆向下 = 向后飞行
-                    -- 摇杆向左 = 向左飞行
-                    -- 摇杆向右 = 向右飞行
-
                     local forward = camCF.LookVector * Vector3.new(1, 0, 1)
-                    forward = forward.Unit
+                    if forward.Magnitude > 0 then forward = forward.Unit end
                     local right = camCF.RightVector * Vector3.new(1, 0, 1)
-                    right = right.Unit
+                    if right.Magnitude > 0 then right = right.Unit end
 
-                    -- 根据摇杆方向计算飞行方向
-                    velocity = (forward * -moveDir.Z + right * moveDir.X) * State.flySpeed
+                    vel = (forward * -moveDir.Z + right * moveDir.X) * State.fly.speed
 
-                    -- 如果摇杆向上推得很大，添加一点上升
                     if moveDir.Z < -0.8 then
-                        velocity = velocity + Vector3.new(0, State.flySpeed * 0.3, 0)
-                    end
-                    -- 如果摇杆向下推得很大，添加一点下降
-                    if moveDir.Z > 0.8 then
-                        velocity = velocity - Vector3.new(0, State.flySpeed * 0.3, 0)
+                        vel = vel + Vector3.new(0, State.fly.speed * 0.3, 0)
+                    elseif moveDir.Z > 0.8 then
+                        vel = vel - Vector3.new(0, State.fly.speed * 0.3, 0)
                     end
                 end
 
-                -- 检测跳跃按钮（上升）
                 if UserInputService:IsKeyDown(Enum.KeyCode.Space) or humanoid.Jump then
-                    velocity = velocity + Vector3.new(0, State.flySpeed, 0)
+                    vel = vel + Vector3.new(0, State.fly.speed, 0)
                 end
             else
-                -- PC端：WASD + 空格/Shift
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then velocity = velocity + camCF.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then velocity = velocity - camCF.LookVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then velocity = velocity - camCF.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then velocity = velocity + camCF.RightVector end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then velocity = velocity + Vector3.new(0, 1, 0) end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then velocity = velocity - Vector3.new(0, 1, 0) end
-                velocity = velocity * State.flySpeed
+                -- PC键盘
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then vel = vel + camCF.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then vel = vel - camCF.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then vel = vel - camCF.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then vel = vel + camCF.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then vel = vel + Vector3.new(0, 1, 0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then vel = vel - Vector3.new(0, 1, 0) end
+                vel = vel * State.fly.speed
             end
 
-            flyBodyVelocity.Velocity = velocity
+            flyBody.Velocity = vel
         end)
-
-        table.insert(Connections, flyMobileConnection)
-    else
-        if flyBodyVelocity then flyBodyVelocity:Destroy() end
-        if flyMobileConnection then flyMobileConnection:Disconnect() end
-        flyMobileConnection = nil
-    end
+    end)
 end
 
--- ========== 玩家透视 ==========
-local playerHighlights = {}
+-- 玩家透视
+local playerEspItems = {}
 local function updatePlayerEsp()
-    for _, hl in pairs(playerHighlights) do
-        if hl then hl:Destroy() end
+    for _, item in pairs(playerEspItems) do
+        pcall(function() item:Destroy() end)
     end
-    playerHighlights = {}
+    playerEspItems = {}
 
-    if not State.playerEspEnabled then return end
+    if not State.playerEsp.enabled then return end
 
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= player and p.Character then
-            if State.playerEspTeamCheck and p.Team == player.Team then continue end
+            if State.playerEsp.teamCheck and p.Team == player.Team then continue end
 
-            local highlight = Instance.new("Highlight")
-            highlight.FillColor = Colors.Pink
-            highlight.OutlineColor = Colors.Gold
-            highlight.FillTransparency = 0.5
-            highlight.OutlineTransparency = 0
-            highlight.Parent = p.Character
-            table.insert(playerHighlights, highlight)
+            pcall(function()
+                local highlight = Instance.new("Highlight")
+                highlight.FillColor = Colors.Primary
+                highlight.OutlineColor = Colors.Gold
+                highlight.FillTransparency = 0.5
+                highlight.OutlineTransparency = 0
+                highlight.Parent = p.Character
+                table.insert(playerEspItems, highlight)
 
-            local head = p.Character:FindFirstChild("Head")
-            if head then
-                local billboard = Instance.new("BillboardGui")
-                billboard.Size = UDim2.new(0, 150, 0, 50)
-                billboard.StudsOffset = Vector3.new(0, 2, 0)
-                billboard.AlwaysOnTop = true
-                billboard.Parent = head
+                local head = p.Character:FindFirstChild("Head")
+                if head then
+                    local bill = Instance.new("BillboardGui")
+                    bill.Size = UDim2.new(0, 120, 0, 40)
+                    bill.StudsOffset = Vector3.new(0, 2, 0)
+                    bill.AlwaysOnTop = true
+                    bill.Parent = head
 
-                local nameLabel = Instance.new("TextLabel")
-                nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-                nameLabel.BackgroundTransparency = 1
-                nameLabel.Text = p.Name
-                nameLabel.Font = Enum.Font.GothamBold
-                nameLabel.TextSize = 14
-                nameLabel.TextColor3 = Colors.Pink
-                nameLabel.Parent = billboard
+                    local name = Instance.new("TextLabel")
+                    name.Size = UDim2.new(1, 0, 0.5, 0)
+                    name.BackgroundTransparency = 1
+                    name.Text = p.Name
+                    name.Font = Enum.Font.GothamBold
+                    name.TextSize = 12
+                    name.TextColor3 = Colors.Primary
+                    name.Parent = bill
 
-                local distLabel = Instance.new("TextLabel")
-                distLabel.Size = UDim2.new(1, 0, 0.5, 0)
-                distLabel.Position = UDim2.new(0, 0, 0.5, 0)
-                distLabel.BackgroundTransparency = 1
-                distLabel.Text = "0m"
-                distLabel.Font = Enum.Font.Gotham
-                distLabel.TextSize = 12
-                distLabel.TextColor3 = Colors.Cyan
-                distLabel.Parent = billboard
-
-                spawn(function()
-                    while billboard and billboard.Parent do
-                        local myChar = player.Character
-                        local theirChar = p.Character
-                        if myChar and theirChar and myChar:FindFirstChild("HumanoidRootPart") and theirChar:FindFirstChild("HumanoidRootPart") then
-                            local dist = (myChar.HumanoidRootPart.Position - theirChar.HumanoidRootPart.Position).Magnitude
-                            distLabel.Text = string.format("%.0fm", dist)
-                        end
-                        wait(0.5)
-                    end
-                end)
-
-                table.insert(playerHighlights, billboard)
-            end
+                    table.insert(playerEspItems, bill)
+                end
+            end)
         end
     end
 end
 
--- ========== NPC透视 ==========
-local npcHighlights = {}
-local npcConnections = {}
+-- NPC透视
+local npcEspItems = {}
 local function updateNpcEsp()
-    for _, obj in pairs(npcHighlights) do
-        if obj then obj:Destroy() end
+    for _, item in pairs(npcEspItems) do
+        pcall(function() item:Destroy() end)
     end
-    npcHighlights = {}
-    for _, conn in pairs(npcConnections) do
-        if conn then conn:Disconnect() end
-    end
-    npcConnections = {}
+    npcEspItems = {}
 
-    if not State.npcEspEnabled then return end
+    if not State.npcEsp.enabled then return end
 
     local function processNpc(npc)
         if not npc:IsA("Model") then return end
-        if npc:FindFirstChild("Humanoid") and not Players:GetPlayerFromCharacter(npc) then
+        if not npc:FindFirstChild("Humanoid") then return end
+        if Players:GetPlayerFromCharacter(npc) then return end
+
+        pcall(function()
             local highlight = Instance.new("Highlight")
             highlight.FillColor = Colors.Red
-            highlight.OutlineColor = Colors.Orange
+            highlight.OutlineColor = Colors.Gold
             highlight.FillTransparency = 0.6
             highlight.OutlineTransparency = 0
             highlight.Parent = npc
-            table.insert(npcHighlights, highlight)
-
-            local myChar = player.Character
-            if myChar and myChar:FindFirstChild("HumanoidRootPart") and npc:FindFirstChild("HumanoidRootPart") then
-                local line = Instance.new("Beam")
-                local attach1 = Instance.new("Attachment", myChar.HumanoidRootPart)
-                local attach2 = Instance.new("Attachment", npc.HumanoidRootPart)
-                line.Attachment0 = attach1
-                line.Attachment1 = attach2
-                line.Color = ColorSequence.new(Colors.Red)
-                line.Width0 = 0.1
-                line.Width1 = 0.1
-                line.FaceCamera = true
-                line.Parent = myChar.HumanoidRootPart
-                table.insert(npcHighlights, line)
-                table.insert(npcHighlights, attach1)
-                table.insert(npcHighlights, attach2)
-            end
+            table.insert(npcEspItems, highlight)
 
             local head = npc:FindFirstChild("Head") or npc:FindFirstChild("HumanoidRootPart")
             if head then
-                local billboard = Instance.new("BillboardGui")
-                billboard.Size = UDim2.new(0, 180, 0, 60)
-                billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-                billboard.AlwaysOnTop = true
-                billboard.Parent = head
+                local bill = Instance.new("BillboardGui")
+                bill.Size = UDim2.new(0, 150, 0, 50)
+                bill.StudsOffset = Vector3.new(0, 2, 0)
+                bill.AlwaysOnTop = true
+                bill.Parent = head
 
-                local nameLabel = Instance.new("TextLabel")
-                nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-                nameLabel.BackgroundTransparency = 1
-                nameLabel.Text = npc.Name
-                nameLabel.Font = Enum.Font.GothamBold
-                nameLabel.TextSize = 14
-                nameLabel.TextColor3 = Colors.Red
-                nameLabel.Parent = billboard
+                local name = Instance.new("TextLabel")
+                name.Size = UDim2.new(1, 0, 0.6, 0)
+                name.BackgroundTransparency = 1
+                name.Text = npc.Name
+                name.Font = Enum.Font.GothamBold
+                name.TextSize = 12
+                name.TextColor3 = Colors.Red
+                name.Parent = bill
 
-                local distLabel = Instance.new("TextLabel")
-                distLabel.Size = UDim2.new(1, 0, 0.5, 0)
-                distLabel.Position = UDim2.new(0, 0, 0.5, 0)
-                distLabel.BackgroundTransparency = 1
-                distLabel.Text = "0m"
-                distLabel.Font = Enum.Font.Gotham
-                distLabel.TextSize = 12
-                distLabel.TextColor3 = Colors.Yellow
-                distLabel.Parent = billboard
-
-                local updateConn = RunService.Heartbeat:Connect(function()
-                    if billboard and billboard.Parent and myChar and myChar:FindFirstChild("HumanoidRootPart") and npc:FindFirstChild("HumanoidRootPart") then
-                        local dist = (myChar.HumanoidRootPart.Position - npc.HumanoidRootPart.Position).Magnitude
-                        distLabel.Text = string.format("%.0fm", dist)
-                    end
-                end)
-                table.insert(npcConnections, updateConn)
-                table.insert(npcHighlights, billboard)
+                table.insert(npcEspItems, bill)
             end
-        end
+        end)
     end
 
     for _, npc in pairs(Workspace:GetDescendants()) do
         processNpc(npc)
     end
-
-    local addedConn = Workspace.DescendantAdded:Connect(processNpc)
-    table.insert(npcConnections, addedConn)
 end
 
--- ========== 可互动道具透视（优化版防卡顿） ==========
-local itemHighlights = {}
-local itemUpdateConnection = nil
+-- 道具透视
+local itemEspItems = {}
 local lastItemUpdate = 0
-local ITEM_UPDATE_INTERVAL = 0.5 -- 每0.5秒更新一次，防止卡顿
 
 local function updateItemEsp()
-    -- 清理旧的高亮
-    for _, obj in pairs(itemHighlights) do
-        if obj and obj.Parent then
-            obj:Destroy()
-        end
+    for _, item in pairs(itemEspItems) do
+        pcall(function() item:Destroy() end)
     end
-    itemHighlights = {}
+    itemEspItems = {}
 
-    if not State.itemEspEnabled then
-        if itemUpdateConnection then
-            itemUpdateConnection:Disconnect()
-            itemUpdateConnection = nil
-        end
-        return
-    end
+    if not State.itemEsp.enabled then return end
 
-    local myChar = player.Character
-    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
-    local myPos = myChar.HumanoidRootPart.Position
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local myPos = char.HumanoidRootPart.Position
 
-    -- 使用批量处理减少卡顿
-    local itemsToProcess = {}
+    local keywords = {"coin", "gem", "item", "tool", "weapon", "potion", "food", "money", "cash", "collect", "pickup", "loot", "drop", "reward", "chest", "box", "crate"}
     local count = 0
 
-    -- 收集可互动道具（使用范围限制）
     for _, obj in pairs(Workspace:GetDescendants()) do
-        if count > 100 then break end -- 限制处理数量
+        if count >= 50 then break end
+        if not obj:IsA("BasePart") and not obj:IsA("MeshPart") then continue end
 
-        if obj:IsA("BasePart") or obj:IsA("MeshPart") then
-            -- 检测可互动道具的特征
-            local isInteractable = false
-            local itemName = obj.Name
-
-            -- 检测常见的可互动道具名称
-            local interactableKeywords = {
-                "Coin", "Gem", "Item", "Tool", "Weapon", "Potion", "Food", "Money", "Cash",
-                "Collect", "Pickup", "Loot", "Drop", "Reward", "Chest", "Box", "Crate",
-                "蛋", "金币", "宝石", "道具", "武器", "药水", "食物", "钱", "收集",
-                "掉落", "奖励", "宝箱", "盒子", "物品"
-            }
-
-            for _, keyword in ipairs(interactableKeywords) do
-                if string.find(string.lower(itemName), string.lower(keyword)) then
-                    isInteractable = true
-                    break
-                end
+        local isItem = false
+        local name = string.lower(obj.Name)
+        for _, kw in ipairs(keywords) do
+            if string.find(name, kw) then
+                isItem = true
+                break
             end
+        end
 
-            -- 检测是否有 ClickDetector 或 TouchInterest
-            if not isInteractable then
-                if obj:FindFirstChild("ClickDetector") or obj:FindFirstChild("TouchInterest") then
-                    isInteractable = true
-                end
-            end
+        if not isItem and (obj:FindFirstChild("ClickDetector") or obj:FindFirstChild("ProximityPrompt")) then
+            isItem = true
+        end
 
-            -- 检测 ProximityPrompt
-            if not isInteractable then
-                if obj:FindFirstChild("ProximityPrompt") then
-                    isInteractable = true
-                end
-            end
+        if isItem then
+            local dist = (obj.Position - myPos).Magnitude
+            if dist <= State.itemEsp.range then
+                pcall(function()
+                    local highlight = Instance.new("Highlight")
+                    highlight.FillColor = Colors.Green
+                    highlight.OutlineColor = Colors.Accent
+                    highlight.FillTransparency = 0.7
+                    highlight.OutlineTransparency = 0.2
+                    highlight.Parent = obj
+                    table.insert(itemEspItems, highlight)
 
-            -- 检测常见的可收集物品材质/颜色
-            if not isInteractable then
-                if obj.Material == Enum.Material.Neon or obj.Material == Enum.Material.ForceField then
-                    isInteractable = true
-                end
-            end
+                    local bill = Instance.new("BillboardGui")
+                    bill.Size = UDim2.new(0, 120, 0, 35)
+                    bill.StudsOffset = Vector3.new(0, 1.5, 0)
+                    bill.AlwaysOnTop = true
+                    bill.Parent = obj
 
-            if isInteractable then
-                local dist = (obj.Position - myPos).Magnitude
-                if dist <= State.itemEspRange then
-                    table.insert(itemsToProcess, {obj = obj, dist = dist, name = itemName})
-                    count = count + 1
-                end
+                    local label = Instance.new("TextLabel")
+                    label.Size = UDim2.new(1, 0, 1, 0)
+                    label.BackgroundTransparency = 1
+                    label.Text = obj.Name .. "
+" .. string.format("%.0fm", dist)
+                    label.Font = Enum.Font.GothamBold
+                    label.TextSize = 10
+                    label.TextColor3 = Colors.Green
+                    label.Parent = bill
+
+                    table.insert(itemEspItems, bill)
+                end)
+                count = count + 1
             end
         end
     end
+end
 
-    -- 批量创建高亮（分帧处理防卡顿）
-    spawn(function()
-        for i, itemData in ipairs(itemsToProcess) do
-            if not State.itemEspEnabled then return end
+-- NPC击杀
+local npcKillConn = nil
+local function updateNpcKill()
+    if npcKillConn then
+        pcall(function() npcKillConn:Disconnect() end)
+        npcKillConn = nil
+    end
 
-            local obj = itemData.obj
-            if not obj or not obj.Parent
+    if not State.npcKill.enabled then return end
+
+    npcKillConn = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+            local myPos = char.HumanoidRootPart.Position
+
+            for _, npc in pairs(Workspace:GetDescendants()) do
+                if not npc:IsA("Model") then continue end
+                if not npc:FindFirstChild("Humanoid") then continue end
+                if Players:GetPlayerFromCharacter(npc) then continue end
+
+                local hrp = npc:FindFirstChild("HumanoidRootPart")
+                local humanoid = npc:FindFirstChild("Humanoid")
+                if hrp and humanoid then
+                    local dist = (myPos - hrp.Position).Magnitude
+                    if dist <= State.npcKill.range then
+                        humanoid.Health = 0
+                    end
+                end
+            end
+        end)
+        wait(State.npcKill.interval)
+    end)
+end
+
+-- ========== 功能页面 ==========
+local Pages = {
+    {
+        name = "通用功能",
+        icon = "⚡",
+        color = Colors.Gold,
+        build = function(parent)
+            createToggle(parent, "循环速度", false, Colors.Green, function(v)
+                State.speed.enabled = v
+                updateSpeed()
+            end)
+            createSlider(parent, "速度数值", 16, 500, 100, Colors.Green, function(v)
+                State.speed.value = v
+            end)
+
+            createToggle(parent, "循环跳跃", false, Colors.Accent, function(v)
+                State.jump.enabled = v
+                updateJump()
+            end)
+            createSlider(parent, "跳跃力量", 50, 500, 100, Colors.Accent, function(v)
+                State.jump.value = v
+            end)
+
+            createToggle(parent, "飞行模式", false, Colors.Primary, function(v)
+                State.fly.enabled = v
+                updateFly()
+            end)
+            createToggle(parent, "手机飞行", true, Colors.Secondary, function(v)
+                State.fly.mobile = v
+            end)
+            createSlider(parent, "飞行速度", 10, 200, 50, Colors.Primary, function(v)
+                State.fly.speed = v
+            end)
+        end
+    },
+    {
+        name = "透视功能",
+        icon = "👁️",
+        color = Colors.Primary,
+        build = function(parent)
+            createToggle(parent, "玩家透视", false, Colors.Primary, function(v)
+                State.playerEsp.enabled = v
+                updatePlayerEsp()
+            end)
+            createToggle(parent, "队伍检测", true, Colors.Accent, function(v)
+                State.playerEsp.teamCheck = v
+                if State.playerEsp.enabled then updatePlayerEsp() end
+            end)
+            createToggle(parent, "NPC透视", false, Colors.Red, function(v)
+                State.npcEsp.enabled = v
+                updateNpcEsp()
+            end)
+            createToggle(parent, "道具透视", false, Colors.Green, function(v)
+                State.itemEsp.enabled = v
+                if v then updateItemEsp() end
+            end)
+            createSlider(parent, "道具范围", 10, 500, 100, Colors.Green, function(v)
+                State.itemEsp.range = v
+            end)
+        end
+    },
+    {
+        name = "NPC功能",
+        icon = "🤖",
+        color = Colors.Red,
+        build = function(parent)
+            createToggle(parent, "NPC击杀", false, Colors.Red, function(v)
+                State.npcKill.enabled = v
+                updateNpcKill()
+            end)
+            createSlider(parent, "击杀范围", 5, 100, 20, Colors.Orange, function(v)
+                State.npcKill.range = v
+            end)
+            createSlider(parent, "击杀间隔", 0.1, 5, 1, Colors.Gold, function(v)
+                State.npcKill.interval = v
+            end)
+        end
+    },
+    {
+        name = "其他功能",
+        icon = "🛠️",
+        color = Colors.Gold,
+        build = function(parent)
+            createButton(parent, "重置角色", "重新生成角色", "🔄", Colors.Orange, function()
+                pcall(function()
+                    if player.Character then player.Character:BreakJoints() end
+                end)
+            end)
+            createButton(parent, "全屏亮度", "调整游戏亮度", "💡", Colors.Gold, function()
+                Lighting.Brightness = 5
+                Lighting.GlobalShadows = false
+            end)
+            createButton(parent, "夜视模式", "黑暗中看清", "🌙", Colors.Accent, function()
+                Lighting.Brightness = 2
+                Lighting.GlobalShadows = false
+            end)
+        end
+    },
+}
+
+-- ========== 创建左侧分类 ==========
+local currentPage = nil
+
+for i, page in ipairs(Pages) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.9, 0, 0, 45)
+    btn.BackgroundColor3 = Colors.ButtonBg
+    btn.Text = ""
+    btn.ZIndex = 13
+    btn.LayoutOrder = i
+    corner(btn, 15)
+
+    local icon = Instance.new("TextLabel")
+    icon.Size = UDim2.new(0, 30, 0, 30)
+    icon.Position = UDim2.new(0, 10, 0, 7)
+    icon.BackgroundTransparency = 1
+    icon.Text = page.icon
+    icon.Font = Enum.Font.GothamBold
+    icon.TextSize = 22
+    icon.ZIndex = 14
+    icon.Parent = btn
+
+    local name = Instance.new("TextLabel")
+    name.Size = UDim2.new(1, -45, 1, 0)
+    name.Position = UDim2.new(0, 40, 0, 0)
+    name.BackgroundTransparency = 1
+    name.Text = page.name
+    name.Font = Enum.Font.GothamBold
+    name.TextSize = 14
+    name.TextColor3 = Color3.fromRGB(255, 255, 255)
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.ZIndex = 14
+    name.Parent = btn
+
+    local ind = Instance.new("Frame")
+    ind.Size = UDim2.new(0, 3, 0.6, 0)
+    ind.Position = UDim2.new(0, 0, 0.2, 0)
+    ind.BackgroundColor3 = page.color
+    ind.BorderSizePixel = 0
+    ind.ZIndex = 14
+    ind.Visible = false
+    corner(ind, 2)
+    ind.Parent = btn
+
+    btn.MouseEnter:Connect(function()
+        if currentPage ~= page then tween(btn, {BackgroundColor3 = Colors.HoverBg}, 0.2) end
+    end)
+
+    btn.MouseLeave:Connect(function()
+        if currentPage ~= page then tween(btn, {BackgroundColor3 = Colors.ButtonBg}, 0.2) end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        if currentPage then
+            for _, c in pairs(SidebarScroll:GetChildren()) do
+                if c:IsA("TextButton") and c ~= btn then
+                    tween(c, {BackgroundColor3 = Colors.ButtonBg}, 0.3)
+                    c:FindFirstChildOfClass("Frame").Visible = false
+                end
+            end
+        end
+
+        currentPage = page
+        tween(btn, {BackgroundColor3 = Colors.ActiveBg}, 0.3)
+        ind.Visible = true
+
+        for _, c in pairs(ContentScroll:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextButton") then c:Destroy() end
+        end
+
+        page.build(ContentScroll)
+        ContentScroll.CanvasSize = UDim2.new(0, 0, 0, ContentList.AbsoluteContentSize.Y + 20)
+    end)
+
+    btn.Parent = SidebarScroll
+end
+
+-- 默认选中第一个
+wait(0.1)
+if #Pages > 0 then
+    currentPage = Pages[1]
+    local first = SidebarScroll:FindFirstChildOfClass("TextButton")
+    if first then
+        tween(first, {BackgroundColor3 = Colors.ActiveBg}, 0.3)
+        first:FindFirstChildOfClass("Frame").Visible = true
+        Pages[1].build(ContentScroll)
+        ContentScroll.CanvasSize = UDim2.new(0, 0, 0, ContentList.AbsoluteContentSize.Y + 20)
+    end
+end
+
+SidebarScroll.CanvasSize = UDim2.new(0, 0, 0, SidebarList.AbsoluteContentSize.Y + 20)
+
+-- ========== 悬浮球 ==========
+local FloatBtn = Instance.new("TextButton")
+FloatBtn.Size = UDim2.new(0, 50, 0, 50)
+FloatBtn.Position = UDim2.new(0, 20, 0.5, -25)
+FloatBtn.BackgroundColor3 = Colors.Primary
+FloatBtn.Text = "🐱"
+FloatBtn.Font = Enum.Font.GothamBlack
+FloatBtn.TextSize = 26
+FloatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+FloatBtn.ZIndex = 100
+FloatBtn.Visible = false
+FloatBtn.Parent = ScreenGui
+
+corner(FloatBtn, 25)
+glow(FloatBtn, Colors.Gold, 3)
+
+-- 最小化/恢复
+MinBtn.MouseButton1Click:Connect(function()
+    State.minimized = true
+    tween(MainFrame, {Position = UDim2.new(0.5, -300, 1.5, 0)}, 0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+    wait(0.5)
+    MainFrame.Visible = false
+    FloatBtn.Visible = true
+end)
+
+FloatBtn.MouseButton1Click:Connect(function()
+    State.minimized = false
+    FloatBtn.Visible = false
+    MainFrame.Visible = true
+    tween(MainFrame, {Position = UDim2.new(0.5, -300, 0.5, -175)}, 0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+end)
+
+-- 关闭
+CloseBtn.MouseButton1Click:Connect(function()
+    clearConnections()
+    pcall(function()
+        if flyConn then flyConn:Disconnect() end
+        if npcKillConn then npcKillConn:Disconnect() end
+    end)
+    tween(MainFrame, {Position = UDim2.new(0.5, -300, 1.5, 0)}, 0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+    wait(0.5)
+    ScreenGui:Destroy()
+end)
+
+-- ========== 拖动 ==========
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
